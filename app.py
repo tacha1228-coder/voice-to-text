@@ -32,12 +32,51 @@ with tab1:
         audio_path = "downloaded_audio"
 
 with tab2:
-    uploaded = st.file_uploader("اختاري ملفًا صوتيًا", type=["mp3", "wav", "m4a", "ogg", "mp4"])
+    uploaded = st.file_uploader("اختاري ملفًا صوتيًا", type=["mp3", "wav", "m4a", "ogg", "mp4", "webm"])
     if uploaded:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         tmp.write(uploaded.read())
         tmp.close()
         audio_path = tmp.name
+
+def download_youtube(url):
+    base_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': 'audio.%(ext)s',
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
+        'quiet': True,
+        'no_warnings': True,
+        'force_ipv4': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web_safari', 'web'],
+            }
+        },
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
+    try:
+        with yt_dlp.YoutubeDL(base_opts) as ydl:
+            ydl.download([url])
+        return "audio.wav"
+    except Exception as e1:
+        try:
+            st.info("🔄 الطريقة الأولى فشلت، جارٍ تجربة طريقة أخرى...")
+            alt_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': 'audio.%(ext)s',
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
+                'quiet': True,
+                'no_warnings': True,
+                'force_ipv4': True,
+                'extractor_args': {
+                    'youtube': {'player_client': ['ios', 'mweb']}
+                },
+            }
+            with yt_dlp.YoutubeDL(alt_opts) as ydl:
+                ydl.download([url])
+            return "audio.wav"
+        except Exception as e2:
+            raise Exception(f"تعذّر التحميل. جرّبي فيديو آخر أو استخدمي رفع الملف.")
 
 if audio_path and st.button("🚀 ابدأ التحويل", type="primary"):
     progress = st.progress(0)
@@ -46,37 +85,37 @@ if audio_path and st.button("🚀 ابدأ التحويل", type="primary"):
         if audio_path == "downloaded_audio":
             status.text("⏬ جارٍ تحميل الصوت من يوتيوب...")
             progress.progress(10)
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': 'audio.%(ext)s',
-                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'wav'}],
-                'quiet': True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            audio_path = "audio.wav"
+            audio_path = download_youtube(url)
         
-        status.text("🎧 جارٍ تفريغ النص... (قد يستغرق وقتًا للصوتيات الطويلة)")
+        status.text("🎧 جارٍ تفريغ النص... (قد يستغرق وقتًا)")
         progress.progress(30)
         
         model = WhisperModel("small", device="cpu", compute_type="int8")
-        segments, info = model.transcribe(audio_path, language=lang_map[lang_choice], vad_filter=True)
+        segments, info = model.transcribe(
+            audio_path, 
+            language=lang_map[lang_choice], 
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
         
         full_text = ""
         for seg in segments:
             full_text += seg.text + "\n"
         
-        progress.progress(80)
-        st.session_state['text'] = full_text
+        progress.progress(85)
+        st.session_state['text'] = full_text.strip()
         status.text("✅ تم التفريغ!")
         progress.progress(100)
+        st.success("🎉 اكتمل التفريغ!")
+        
     except Exception as e:
         st.error(f"حدث خطأ: {e}")
 
 if 'text' in st.session_state and st.session_state['text']:
     st.subheader("📝 النص المفرغ")
-    st.text_area("", st.session_state['text'], height=250)
+    st.text_area("يمكنك نسخ النص من هنا", st.session_state['text'], height=250)
     text = st.session_state['text']
+    
     col1, col2 = st.columns(2)
     
     with col1:
