@@ -1,0 +1,7 @@
+streamlit
+faster-whisper
+yt-dlp
+python-docx
+weasyprint
+arabic-reshaper
+python-bidi
