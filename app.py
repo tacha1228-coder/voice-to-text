@@ -15,8 +15,9 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from weasyprint import HTML
 
-st.set_page_config(page_title="محول الصوت إلى نص", page_icon="🎙️", layout="wide", initial_sidebar_state="auto")
+st.set_page_config(page_title="محول الصوت إلى نص", page_icon="🎙️", layout="wide")
 
+# ⚠️ التحذير الشرعي والأخلاقي
 st.error("""
 ### ⚠️ تنبيه شرعي وأخلاقي هام
 
@@ -35,6 +36,9 @@ with st.sidebar:
     st.header("⚙️ الإعدادات")
     lang_choice = st.selectbox("اللغة", ["تلقائي", "العربية", "الإنجليزية", "الفرنسية"])
     lang_map = {"تلقائي": None, "العربية": "ar", "الإنجليزية": "en", "الفرنسية": "fr"}
+    
+    st.divider()
+    st.caption("💡 نصيحة: للصوتيات الطويلة جدًا، استخدمي تبويب رفع الملف")
 
 tab1, tab2 = st.tabs(["🔗 رابط يوتيوب", "📁 رفع ملف صوتي"])
 
@@ -56,6 +60,7 @@ with tab2:
         tmp.close()
         audio_path = tmp.name
 
+
 def format_time(seconds):
     if seconds < 60:
         return f"{int(seconds)} ثانية"
@@ -68,11 +73,13 @@ def format_time(seconds):
         m = int((seconds % 3600) // 60)
         return f"{h} س {m} د"
 
+
 def set_rtl(paragraph):
     pPr = paragraph._p.get_or_add_pPr()
     bidi = OxmlElement('w:bidi')
     pPr.append(bidi)
     paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
 
 def download_youtube(url):
     base_opts = {
@@ -89,7 +96,7 @@ def download_youtube(url):
         with yt_dlp.YoutubeDL(base_opts) as ydl:
             ydl.download([url])
         return "audio.wav"
-    except Exception as e1:
+    except Exception:
         try:
             st.info("🔄 الطريقة الأولى فشلت، جارٍ تجربة طريقة أخرى...")
             alt_opts = {
@@ -104,12 +111,20 @@ def download_youtube(url):
             with yt_dlp.YoutubeDL(alt_opts) as ydl:
                 ydl.download([url])
             return "audio.wav"
-        except Exception as e2:
+        except Exception:
             raise Exception("تعذّر التحميل. جرّبي فيديو آخر أو استخدمي رفع الملف.")
+
+
+# 🚀 تحميل الموديل مرة واحدة فقط (ذاكرة مخبأة)
+@st.cache_resource(show_spinner=False)
+def load_model():
+    # موديل tiny أخف بكثير ويعمل على Streamlit المجاني
+    return WhisperModel("tiny", device="cpu", compute_type="int8")
+
 
 if audio_path and st.button("🚀 ابدأ التحويل", type="primary"):
     try:
-        # ================= المرحلة 1 =================
+        # ============ المرحلة 1: تجهيز الصوت ============
         if audio_path == "downloaded_audio":
             st.markdown("### 📥 المرحلة 1 من 3: تحميل الصوت من يوتيوب")
             bar1 = st.progress(0, text="0%")
@@ -123,94 +138,90 @@ if audio_path and st.button("🚀 ابدأ التحويل", type="primary"):
             bar1 = st.progress(0, text="0%")
             for i in range(1, 11):
                 bar1.progress(i * 10, text=f"{i*10}% - تجهيز الملف")
-                time.sleep(0.05)
+                time.sleep(0.03)
             bar1.progress(100, text="100% - ✅ الملف جاهز")
-        
-        # ================= المرحلة 2: التفريغ =================
-        st.markdown("### 🎧 المرحلة 2 من 3: تفريغ النص (تحميل الموديل)")
+
+        # ============ المرحلة 2: تفريغ النص ============
+        st.markdown("### 🎧 المرحلة 2 من 3: تفريغ النص")
         bar2 = st.progress(0, text="0%")
         status2 = st.empty()
-        
-        status2.info("⏳ يتم تحميل موديل Whisper لأول مرة (قد يستغرق 1-2 دقيقة)...")
+
+        status2.info("⏳ يتم تحميل الموديل لأول مرة (قد يستغرق 30-60 ثانية)...")
         bar2.progress(5, text="5% - تحميل الموديل...")
-        
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-        
-        bar2.progress(15, text="15% - جارٍ التفريغ...")
+
+        model = load_model()
+
+        bar2.progress(15, text="15% - بدء التفريغ...")
         status2.info("🎙️ جارٍ تفريغ النص...")
-        
+
         segments, info = model.transcribe(
             audio_path,
             language=lang_map[lang_choice],
+            beam_size=1,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500)
         )
-        
+
         full_text = ""
         seg_list = list(segments)
         total_segs = len(seg_list) if seg_list else 1
-        
-        # محاولة الحصول على مدة الصوت الكلية
+
         try:
             total_duration = info.duration
-        except:
+        except Exception:
             total_duration = 0
-        
+
         start_time = time.time()
-        
+
         for i, seg in enumerate(seg_list):
             full_text += seg.text + "\n"
-            
-            # النسبة بناءً على الطابع الزمني للمقطع
+
             if total_duration > 0:
                 percent = min(15 + int((seg.end / total_duration) * 80), 95)
             else:
                 percent = 15 + int((i / total_segs) * 80)
-            
-            # حساب الوقت المتبقي
+
             elapsed = time.time() - start_time
             if i > 0 and total_duration > 0:
-                progress_ratio = seg.end / total_duration
-                if progress_ratio > 0:
-                    total_estimated = elapsed / progress_ratio
-                    remaining = total_estimated - elapsed
+                ratio = seg.end / total_duration
+                if ratio > 0:
+                    total_est = elapsed / ratio
+                    remaining = total_est - elapsed
                     time_str = f" | ⏳ الوقت المتبقي: {format_time(remaining)}"
                 else:
                     time_str = ""
             else:
                 time_str = " | ⏳ جاري الحساب..."
-            
-            current_time_str = format_time(seg.end) if total_duration > 0 else ""
-            bar2.progress(percent / 100, text=f"{percent}% - عند الدقيقة {current_time_str}{time_str}")
-        
+
+            current = format_time(seg.end) if total_duration > 0 else ""
+            bar2.progress(percent / 100, text=f"{percent}% - عند الدقيقة {current}{time_str}")
+
         bar2.progress(100, text="100% - ✅ تم التفريغ")
         status2.success("✅ تم تفريغ النص بنجاح!")
         st.session_state['text'] = full_text.strip()
-        
-        # ================= المرحلة 3: إنشاء الملفات =================
+
+        # ============ المرحلة 3: إنشاء الملفات ============
         st.markdown("### 📄 المرحلة 3 من 3: إنشاء ملفات Word و PDF")
         bar3 = st.progress(0, text="0%")
-        
-        bar3.progress(30, text="30% - إنشاء Word...")
         text = st.session_state['text']
-        
+
+        bar3.progress(20, text="20% - إنشاء Word...")
         doc = Document()
         style = doc.styles['Normal']
         style.font.name = 'Arial'
         style.font.size = Pt(12)
         style.element.rPr.rFonts.set(qn('w:cs'), 'Arial')
-        
+
         for line in text.split('\n'):
             if line.strip():
                 p = doc.add_paragraph(line)
                 set_rtl(p)
-        
+
         docx_buf = io.BytesIO()
         doc.save(docx_buf)
         docx_buf.seek(0)
-        
-        bar3.progress(70, text="70% - إنشاء PDF...")
-        
+
+        bar3.progress(60, text="60% - إنشاء PDF...")
         lines_html = ""
         for line in text.split('\n'):
             if line.strip():
@@ -223,22 +234,31 @@ if audio_path and st.button("🚀 ابدأ التحويل", type="primary"):
         pdf_buf = io.BytesIO()
         HTML(string=html).write_pdf(pdf_buf)
         pdf_buf.seek(0)
-        
+
         bar3.progress(100, text="100% - ✅ الملفات جاهزة")
-        
+
         st.divider()
         st.success("🎉 اكتمل التحويل!")
-        
-        # ================= التحميل =================
+
+        # ============ التحميل ============
         st.subheader("📝 النص المفرغ")
         st.text_area("يمكنك نسخ النص من هنا", text, height=250)
-        
+
         col1, col2 = st.columns(2)
         with col1:
-            st.download_button("📄 تحميل Word", docx_buf, "transcript.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button(
+                "📄 تحميل Word",
+                docx_buf,
+                "transcript.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
         with col2:
-            st.download_button("📕 تحميل PDF", pdf_buf, "transcript.pdf", "application/pdf")
-        
+            st.download_button(
+                "📕 تحميل PDF",
+                pdf_buf,
+                "transcript.pdf",
+                "application/pdf"
+            )
+
     except Exception as e:
         st.error(f"حدث خطأ: {e}")
