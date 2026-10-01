@@ -15,7 +15,7 @@ import arabic_reshaper
 from bidi.algorithm import get_display
 from weasyprint import HTML
 
-st.set_page_config(page_title="محول الصوت إلى نص", page_icon="🎙️", layout="wide")
+st.set_page_config(page_title="محول الصوت إلى نص", page_icon="🎙️", layout="wide", initial_sidebar_state="auto")
 
 st.error("""
 ### ⚠️ تنبيه شرعي وأخلاقي هام
